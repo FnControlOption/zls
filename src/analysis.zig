@@ -7,6 +7,7 @@
 //! - `lookupSymbolContainer`
 //!
 
+const target = @import("builtin").target;
 const std = @import("std");
 const DocumentStore = @import("DocumentStore.zig");
 const Ast = std.zig.Ast;
@@ -2662,6 +2663,18 @@ pub const Type = union(enum) {
 
         if (entries.len == 1)
             return entries[0].type;
+
+        peer_type_resolution: {
+            var ip_indexes = try std.ArrayListUnmanaged(InternPool.Index).initCapacity(arena, entries.len);
+            defer ip_indexes.deinit(arena);
+            for (entries) |entry| switch (entry.type) {
+                .ip_index => |payload| ip_indexes.appendAssumeCapacity(analyser.ip.typeOf(payload.index)),
+                else => break :peer_type_resolution,
+            };
+            const peer_ip_index = try analyser.ip.resolvePeerTypes(arena, ip_indexes.items, target);
+            if (peer_ip_index == .none) break :peer_type_resolution;
+            return .{ .ip_index = .{ .index = try analyser.ip.getUnknown(arena, peer_ip_index) } };
+        }
 
         // Note that we don't hash/equate descriptors to remove
         // duplicates

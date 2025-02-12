@@ -549,6 +549,27 @@ test "tuple fields" {
     , .{ .kind = .Type });
 }
 
+test "peer type resolution - if" {
+    try testInlayHints(
+        \\var a: bool = undefined;
+        \\var b: i32 = undefined;
+        \\var c: i64 = undefined;
+        \\var d<i64> = if (a) b else c;
+    , .{ .kind = .Type });
+}
+
+test "peer type resolution - switch" {
+    try testInlayHints(
+        \\var a: u1 = undefined;
+        \\var b: i32 = undefined;
+        \\var c: i64 = undefined;
+        \\var d<i64> = switch (a) {
+        \\    0 => b,
+        \\    1 => c,
+        \\};
+    , .{ .kind = .Type });
+}
+
 const Options = struct {
     kind: types.InlayHintKind,
     show_builtin: bool = true,
