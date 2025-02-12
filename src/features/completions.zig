@@ -145,12 +145,13 @@ fn typeToCompletion(builder: *Builder, ty: Analyser.Type) error{OutOfMemory}!voi
             builder.analyser.ip,
             payload.index,
         ),
-        .either => |either_entries| {
-            for (either_entries) |entry| {
-                const entry_ty: Analyser.Type = .{ .data = entry.type_data, .is_type_val = ty.is_type_val };
-                try typeToCompletion(builder, entry_ty);
-            }
-        },
+        .either => {},
+        // .either => |either_entries| {
+        //     for (either_entries) |entry| {
+        //         const entry_ty: Analyser.Type = .{ .data = entry.type_data, .is_type_val = ty.is_type_val };
+        //         try typeToCompletion(builder, entry_ty);
+        //     }
+        // },
         .error_union,
         .union_tag,
         .compile_error,
