@@ -873,7 +873,18 @@ pub fn resolveOptionalUnwrap(analyser: *Analyser, optional: Type) error{OutOfMem
 
     const payload = switch (optional) {
         .dynamic => |payload| payload,
-        .ip_index, .either => return null,
+        .ip_index => |payload| switch (analyser.ip.indexToKey(analyser.ip.typeOf(payload.index))) {
+            .optional_type => |info| {
+                std.debug.assert(analyser.ip.isType(info.payload_type));
+                return try Type.typeValFromIP(analyser, info.payload_type);
+            },
+            .pointer_type => |info| {
+                if (info.flags.size == .c) return optional;
+                return null;
+            },
+            else => return null,
+        },
+        .either => return null,
     };
     switch (payload.data) {
         .optional => |child_ty| {
@@ -886,17 +897,6 @@ pub fn resolveOptionalUnwrap(analyser: *Analyser, optional: Type) error{OutOfMem
         },
         else => return null,
     }
-}
-
-pub fn resolveOrelseType(analyser: *Analyser, lhs: Type, rhs: Type) error{OutOfMemory}!?Type {
-    switch (rhs) {
-        .dynamic => |payload| switch (payload.data) {
-            .optional => return rhs,
-            else => {},
-        },
-        .ip_index, .either => {},
-    }
-    return try analyser.resolveOptionalUnwrap(lhs);
 }
 
 /// Resolves the child type of an optional type
@@ -1046,7 +1046,20 @@ fn resolveBracketAccessType(analyser: *Analyser, lhs: Type, rhs: BracketAccessKi
 
     const payload = switch (lhs) {
         .dynamic => |payload| payload,
-        .ip_index, .either => return null,
+        .ip_index => |payload| switch (analyser.ip.indexToKey(analyser.ip.typeOf(payload.index))) {
+            .array_type => return null, // TODO
+            .pointer_type => |info| switch (info.flags.size) {
+                .one => return null, // TODO
+                .many => return null, // TODO
+                .slice => switch (rhs) {
+                    .Single => return try Type.typeValFromIP(analyser, info.elem_type),
+                    .Open, .Range => return null, // TODO
+                },
+                .c => return null, // TODO
+            },
+            else => return null,
+        },
+        .either => return null,
     };
     switch (payload.data) {
         .other => |node_handle| switch (node_handle.handle.tree.nodes.items(.tag)[node_handle.node]) {
@@ -1640,8 +1653,14 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, node_handle: NodeWithHandle) e
                 .unwrap_optional => try analyser.resolveOptionalUnwrap(base_type),
                 .array_access => try analyser.resolveBracketAccessType(base_type, .Single),
                 .@"orelse" => {
-                    const type_right = try analyser.resolveTypeOfNodeInternal(.{ .node = datas[node].rhs, .handle = handle }) orelse return try analyser.resolveOptionalUnwrap(base_type);
-                    return try analyser.resolveOrelseType(base_type, type_right);
+                    var either: std.BoundedArray(Type.TypeWithDescriptor, 2) = .{};
+
+                    if (try analyser.resolveOptionalUnwrap(base_type)) |t|
+                        either.appendAssumeCapacity(.{ .type = t, .descriptor = try std.fmt.allocPrint(analyser.arena.allocator(), "{s} != null", .{offsets.nodeToSlice(tree, datas[node].lhs)}) });
+                    if (try analyser.resolveTypeOfNodeInternal(.{ .node = datas[node].rhs, .handle = handle })) |t|
+                        either.appendAssumeCapacity(.{ .type = t, .descriptor = try std.fmt.allocPrint(analyser.arena.allocator(), "{s} == null", .{offsets.nodeToSlice(tree, datas[node].lhs)}) });
+
+                    return Type.fromEither(analyser, either.constSlice());
                 },
                 .@"catch" => try analyser.resolveUnwrapErrorUnionType(base_type, .payload),
                 .@"try" => try analyser.resolveUnwrapErrorUnionType(base_type, .payload),
@@ -1665,6 +1684,15 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, node_handle: NodeWithHandle) e
             const child_ty = try analyser.resolveTypeOfNodeInternal(.{ .node = datas[node].lhs, .handle = handle }) orelse return null;
             if (!child_ty.isTypeVal(analyser)) return null;
 
+            if (child_ty == .ip_index) {
+                const ip_index = try analyser.ip.get(analyser.gpa, .{
+                    .optional_type = .{
+                        .payload_type = child_ty.ip_index.index,
+                    },
+                });
+                return .{ .ip_index = .{ .index = ip_index } };
+            }
+
             const child_ty_ptr = try analyser.arena.allocator().create(Type);
             child_ty_ptr.* = child_ty;
 
@@ -1681,6 +1709,20 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, node_handle: NodeWithHandle) e
 
             const elem_ty = try analyser.resolveTypeOfNodeInternal(.{ .node = ptr_info.ast.child_type, .handle = handle }) orelse return null;
             if (!elem_ty.isTypeVal(analyser)) return null;
+
+            if (elem_ty == .ip_index) {
+                const ip_index = try analyser.ip.get(analyser.gpa, .{
+                    .pointer_type = .{
+                        .elem_type = elem_ty.ip_index.index,
+                        .sentinel = sentinel,
+                        .flags = .{
+                            .size = ptr_info.size,
+                            .is_const = ptr_info.const_token != null,
+                        },
+                    },
+                });
+                return .{ .ip_index = .{ .index = ip_index } };
+            }
 
             const elem_ty_ptr = try analyser.arena.allocator().create(Type);
             elem_ty_ptr.* = elem_ty;

@@ -419,8 +419,8 @@ test "std.ArrayHashMap" {
         \\const key = map.getKey("");
         \\const foo = key.?.<cursor>
     , &.{
-        .{ .label = "len", .kind = .Field, .detail = "usize" },
-        .{ .label = "ptr", .kind = .Field, .detail = "[*]const u8" },
+        .{ .label = "len", .kind = .Field, .detail = "len: usize" },
+        .{ .label = "ptr", .kind = .Field, .detail = "ptr: [*]const u8" },
     });
     try testCompletion(
         \\const std = @import("std");
@@ -451,8 +451,8 @@ test "std.HashMap" {
         \\const key = map.getKey("");
         \\const foo = key.?.<cursor>
     , &.{
-        .{ .label = "len", .kind = .Field, .detail = "usize" },
-        .{ .label = "ptr", .kind = .Field, .detail = "[*]const u8" },
+        .{ .label = "len", .kind = .Field, .detail = "len: usize" },
+        .{ .label = "ptr", .kind = .Field, .detail = "ptr: [*]const u8" },
     });
     try testCompletion(
         \\const std = @import("std");
@@ -682,8 +682,8 @@ test "slice pointer" {
         \\const foo: []const u8 = undefined;
         \\const bar = foo.<cursor>
     , &.{
-        .{ .label = "len", .kind = .Field, .detail = "usize" },
-        .{ .label = "ptr", .kind = .Field, .detail = "[*]const u8" },
+        .{ .label = "len", .kind = .Field, .detail = "len: usize" },
+        .{ .label = "ptr", .kind = .Field, .detail = "ptr: [*]const u8" },
     });
 }
 
@@ -778,8 +778,8 @@ test "single pointer to slice" {
         \\const bar = foo.<cursor>
     , &.{
         .{ .label = "*", .kind = .Operator, .detail = "[]u32" },
-        .{ .label = "len", .kind = .Field, .detail = "usize" },
-        .{ .label = "ptr", .kind = .Field, .detail = "[*]u32" },
+        .{ .label = "len", .kind = .Field, .detail = "len: usize" },
+        .{ .label = "ptr", .kind = .Field, .detail = "ptr: [*]u32" },
     });
 }
 
