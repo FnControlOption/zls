@@ -991,13 +991,6 @@ pub fn resolveOptionalUnwrap(analyser: *Analyser, optional: Type) error{OutOfMem
     }
 }
 
-pub fn resolveOrelseType(analyser: *Analyser, lhs: Type, rhs: Type) error{OutOfMemory}!?Type {
-    return switch (rhs.data) {
-        .optional => rhs,
-        else => try analyser.resolveOptionalUnwrap(lhs),
-    };
-}
-
 pub fn resolveAddressOf(analyser: *Analyser, is_const: bool, ty: Type) error{OutOfMemory}!Type {
     return .{
         .data = .{
@@ -1572,6 +1565,7 @@ fn resolvePeerTypesIP(analyser: *Analyser, a: InternPool.Index, b: InternPool.In
 
 fn resolvePeerTypesInternal(analyser: *Analyser, a: Type, b: Type) error{OutOfMemory}!?Type {
     switch (a.data) {
+        .compile_error => return b,
         .optional => |a_type| {
             if (a_type.eql(try b.typeOf(analyser))) {
                 return a;
@@ -1636,6 +1630,7 @@ fn resolvePeerTypesInternal(analyser: *Analyser, a: Type, b: Type) error{OutOfMe
             }
         },
         .ip_index => |a_payload| switch (a_payload.type) {
+            .noreturn_type => return b,
             .null_type => switch (b.data) {
                 .optional => return b,
                 .error_union => |b_info| {
@@ -1985,17 +1980,39 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
 
             const lhs = try analyser.resolveTypeOfNodeInternal(.of(lhs_node, handle)) orelse return null;
+            const lhs_unwrapped = try analyser.resolveOptionalUnwrap(lhs) orelse return null;
 
-            const rhs = try analyser.resolveTypeOfNodeInternal(.of(rhs_node, handle)) orelse return try analyser.resolveOptionalUnwrap(lhs);
+            const rhs = try analyser.resolveTypeOfNodeInternal(.of(rhs_node, handle)) orelse return null;
 
-            return try analyser.resolveOrelseType(lhs, rhs);
+            var builder: Type.EitherBuilder = .empty;
+            builder.add(analyser.arena, lhs_unwrapped, .of(lhs_node, handle)) catch |err| switch (err) {
+                error.WrongTypeVal => return null,
+                else => |e| return e,
+            };
+            builder.add(analyser.arena, rhs, .of(rhs_node, handle)) catch |err| switch (err) {
+                error.WrongTypeVal => return null,
+                else => |e| return e,
+            };
+            return try builder.resolve(analyser);
         },
         .@"catch" => {
-            const lhs_node, _ = tree.nodeData(node).node_and_node;
+            const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
 
             const lhs = try analyser.resolveTypeOfNodeInternal(.of(lhs_node, handle)) orelse return null;
+            const lhs_unwrapped = try analyser.resolveUnwrapErrorUnionType(lhs, .payload) orelse return null;
 
-            return try analyser.resolveUnwrapErrorUnionType(lhs, .payload);
+            const rhs = try analyser.resolveTypeOfNodeInternal(.of(rhs_node, handle)) orelse return null;
+
+            var builder: Type.EitherBuilder = .empty;
+            builder.add(analyser.arena, lhs_unwrapped, .of(lhs_node, handle)) catch |err| switch (err) {
+                error.WrongTypeVal => return null,
+                else => |e| return e,
+            };
+            builder.add(analyser.arena, rhs, .of(rhs_node, handle)) catch |err| switch (err) {
+                error.WrongTypeVal => return null,
+                else => |e| return e,
+            };
+            return try builder.resolve(analyser);
         },
         .@"try" => {
             const expr_node = tree.nodeData(node).node;
@@ -2565,10 +2582,7 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
                 unreachable;
 
             const else_expr = loop.else_expr.unwrap() orelse return null;
-
-            // TODO: peer type resolution based on `else` and all `break` statements
-            if (try analyser.resolveTypeOfNodeInternal(.of(else_expr, handle))) |else_type|
-                return else_type;
+            const else_type = try analyser.resolveTypeOfNodeInternal(.of(else_expr, handle)) orelse return null;
 
             var context: FindBreaks = .{
                 .label = if (loop.label_token) |token| tree.tokenSlice(token) else null,
@@ -2577,10 +2591,19 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             };
             defer context.deinit();
             try context.findBreakOperands(tree, loop.then_expr);
+            var builder: Type.EitherBuilder = .empty;
             for (context.break_operands.items) |operand| {
-                if (try analyser.resolveTypeOfNodeInternal(.of(operand, handle))) |operand_type|
-                    return operand_type;
+                const operand_type = try analyser.resolveTypeOfNodeInternal(.of(operand, handle)) orelse return null;
+                builder.add(analyser.arena, operand_type, .of(operand, handle)) catch |err| switch (err) {
+                    error.WrongTypeVal => return null,
+                    else => |e| return e,
+                };
             }
+            builder.add(analyser.arena, else_type, .of(else_expr, handle)) catch |err| switch (err) {
+                error.WrongTypeVal => return null,
+                else => |e| return e,
+            };
+            return try builder.resolve(analyser);
         },
         .block,
         .block_semicolon,
@@ -2604,7 +2627,6 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             };
             const block_label = offsets.identifierTokenToNameSlice(tree, label_token);
 
-            // TODO: peer type resolution based on all `break` statements
             var context: FindBreaks = .{
                 .label = block_label,
                 .allow_unlabeled = false,
@@ -2612,10 +2634,15 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             };
             defer context.deinit();
             try context.findBreakOperands(tree, node);
+            var builder: Type.EitherBuilder = .empty;
             for (context.break_operands.items) |operand| {
-                if (try analyser.resolveTypeOfNodeInternal(.of(operand, handle))) |operand_type|
-                    return operand_type;
+                const operand_type = try analyser.resolveTypeOfNodeInternal(.of(operand, handle)) orelse return null;
+                builder.add(analyser.arena, operand_type, .of(operand, handle)) catch |err| switch (err) {
+                    error.WrongTypeVal => return null,
+                    else => |e| return e,
+                };
             }
+            return try builder.resolve(analyser);
         },
 
         .for_range => {},
@@ -5478,16 +5505,19 @@ pub const DeclWithHandle = struct {
                     return null;
                 }
 
-                // TODO Peer type resolution, we just use the first resolvable item for now.
+                var builder: Type.EitherBuilder = .empty;
                 for (case.ast.values) |case_value| {
                     if (tree.nodeTag(case_value) != .enum_literal) continue;
                     const name_token = tree.nodeMainToken(case_value);
                     const name = offsets.identifierTokenToNameSlice(tree, name_token);
                     const decl = try switch_expr_type.lookupSymbol(analyser, name) orelse continue;
-                    break :blk (try decl.resolveType(analyser)) orelse continue;
+                    const decl_type = try decl.resolveType(analyser) orelse return null;
+                    builder.add(analyser.arena, decl_type, .of(case_value, self.handle)) catch |err| switch (err) {
+                        error.WrongTypeVal => return null,
+                        else => |e| return e,
+                    };
                 }
-
-                return null;
+                break :blk try builder.resolve(analyser);
             },
             .error_token => return null,
         } orelse return null;
