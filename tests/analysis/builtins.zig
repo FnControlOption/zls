@@ -198,6 +198,8 @@ const type_enum_literal: @Type(.enum_literal) = .foo;
 const type_info = @typeInfo(u8);
 //    ^^^^^^^^^ (Type)()
 
+// TODO: @TypeOf examples
+
 comptime {
     // Use @compileLog to verify the expected type with the compiler
     // @compileLog(vector_builtin_13);
