@@ -2948,6 +2948,35 @@ test "anytype resolution based on callsite-references" {
     });
 }
 
+test "anytype resolution based on callsite-references - instance method" {
+    try testCompletion(
+        \\const Writer1 = struct {
+        \\    fn write1(self: Writer1) void {}
+        \\    fn writeAll1(self: Writer1) void {}
+        \\};
+        \\const Writer2 = struct {
+        \\    fn write2(self: Writer2) void {}
+        \\    fn writeAll2(self: Writer2) void {}
+        \\};
+        \\const S = struct {
+        \\    alpha: u32,
+        \\
+        \\    fn caller(self: S, a: Writer1, b: Writer2) void {
+        \\        self.callee(a);
+        \\        self.callee(b);
+        \\    }
+        \\    fn callee(self: S, writer: anytype) void {
+        \\        writer.<cursor>
+        \\    }
+        \\};
+    , &.{
+        .{ .label = "write1", .kind = .Function, .detail = "fn (self: Writer1) void" },
+        .{ .label = "write2", .kind = .Function, .detail = "fn (self: Writer2) void" },
+        .{ .label = "writeAll1", .kind = .Function, .detail = "fn (self: Writer1) void" },
+        .{ .label = "writeAll2", .kind = .Function, .detail = "fn (self: Writer2) void" },
+    });
+}
+
 test "@field" {
     try testCompletion(
         \\pub const chip_mod = struct {
