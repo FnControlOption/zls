@@ -1722,10 +1722,9 @@ fn resolveCallsiteReferences(analyser: *Analyser, decl_handle: DeclWithHandle) !
         ty = try ty.typeOf(analyser);
         std.debug.assert(ty.is_type_val);
 
-        const loc = offsets.tokenToPosition(tree, tree.nodeMainToken(call.ast.params[real_param_idx]), .@"utf-8");
         try possible.append(analyser.arena, .{
             .type = ty,
-            .descriptor = try std.fmt.allocPrint(analyser.arena, "{s}:{d}:{d}", .{ handle.uri, loc.line + 1, loc.character + 1 }),
+            .descriptor = .of(call.ast.params[real_param_idx], handle),
         });
     }
 
@@ -2482,11 +2481,11 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             var either: std.BoundedArray(Type.TypeWithDescriptor, 2) = .{};
 
             if (try analyser.resolveTypeOfNodeInternal(.of(if_node.ast.then_expr, handle))) |t| {
-                either.appendAssumeCapacity(.{ .type = t, .descriptor = offsets.nodeToSlice(tree, if_node.ast.cond_expr) });
+                either.appendAssumeCapacity(.{ .type = t, .descriptor = .of(if_node.ast.cond_expr, handle) });
             }
             if (if_node.ast.else_expr.unwrap()) |else_expr| {
                 if (try analyser.resolveTypeOfNodeInternal(.of(else_expr, handle))) |t| {
-                    either.appendAssumeCapacity(.{ .type = t, .descriptor = try std.fmt.allocPrint(analyser.arena, "!({s})", .{offsets.nodeToSlice(tree, if_node.ast.cond_expr)}) });
+                    either.appendAssumeCapacity(.{ .type = t, .descriptor = .of(else_expr, handle) });
                 }
             }
             return Type.fromEither(analyser, either.constSlice());
@@ -2499,17 +2498,10 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             var either: std.ArrayListUnmanaged(Type.TypeWithDescriptor) = .empty;
             for (switch_node.ast.cases) |case| {
                 const switch_case = tree.fullSwitchCase(case).?;
-                var descriptor: std.ArrayListUnmanaged(u8) = .empty;
-
-                for (switch_case.ast.values, 0..) |values, index| {
-                    try descriptor.appendSlice(analyser.arena, offsets.nodeToSlice(tree, values));
-                    if (index != switch_case.ast.values.len - 1) try descriptor.appendSlice(analyser.arena, ", ");
-                }
-
                 if (try analyser.resolveTypeOfNodeInternal(.of(switch_case.ast.target_expr, handle))) |t|
                     try either.append(analyser.arena, .{
                         .type = t,
-                        .descriptor = try descriptor.toOwnedSlice(analyser.arena),
+                        .descriptor = .of(case, handle),
                     });
             }
 
@@ -3159,7 +3151,7 @@ pub const Type = struct {
         pub const EitherEntry = struct {
             /// the `is_type_val` property is inherited from the containing `Type`
             type_data: Data,
-            descriptor: []const u8,
+            descriptor: NodeWithHandle,
         };
 
         pub fn hashWithHasher(data: Data, hasher: anytype) void {
@@ -3217,7 +3209,8 @@ pub const Type = struct {
                 },
                 .either => |entries| {
                     for (entries) |entry| {
-                        hasher.update(entry.descriptor);
+                        std.hash.autoHash(hasher, entry.descriptor.node);
+                        hasher.update(entry.descriptor.handle.uri);
                         entry.type_data.hashWithHasher(hasher);
                     }
                 },
@@ -3304,7 +3297,7 @@ pub const Type = struct {
 
                     if (a_entries.len != b_entries.len) return false;
                     for (a_entries, b_entries) |a_entry, b_entry| {
-                        if (!std.mem.eql(u8, a_entry.descriptor, b_entry.descriptor)) return false;
+                        if (!a_entry.descriptor.eql(b_entry.descriptor)) return false;
                         if (!a_entry.type_data.eql(b_entry.type_data)) return false;
                     }
                 },
@@ -3564,7 +3557,7 @@ pub const Type = struct {
 
     pub const TypeWithDescriptor = struct {
         type: Type,
-        descriptor: []const u8,
+        descriptor: NodeWithHandle,
     };
 
     pub fn fromEither(analyser: *Analyser, entries: []const TypeWithDescriptor) error{OutOfMemory}!?Type {
