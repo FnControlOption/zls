@@ -33,11 +33,11 @@ const baz_call = Foo(i32).baz(u8, -42, 42);
 
 // TODO this should be `fn (U: type, u8, U) anytype`
 const qux_fn = Foo(u8).qux;
-//    ^^^^^^ (fn (type, u8, U) u8)()
+//    ^^^^^^ (fn (type, u8, U) either type)()
 
 // TODO this should be `i32`
 const qux_call = Foo(u8).qux(i32, 42, -42);
-//    ^^^^^^^^ (u8)()
+//    ^^^^^^^^ (either type)()
 
 fn fizz(T: type) ?fn () error{}!struct { ??T } {
     return null;
@@ -251,9 +251,9 @@ fn anytypeFn2(a: anytype, b: anytype) @TypeOf(a, b) {
     return a + b;
 }
 const anytype_2_u8_u16 = anytypeFn2(@as(u8, 42), @as(u16, 42));
-//    ^^^^^^^^^^^^^^^^ (u8)() TODO this should be `u16`
+//    ^^^^^^^^^^^^^^^^ (either type)() TODO this should be `u16`
 const anytype_2_i8_i16 = anytypeFn2(@as(i8, 42), @as(i16, 42));
-//    ^^^^^^^^^^^^^^^^ (i8)() TODO this should be `i16`
+//    ^^^^^^^^^^^^^^^^ (either type)() TODO this should be `i16`
 
 comptime {
     // Use @compileLog to verify the expected type with the compiler:

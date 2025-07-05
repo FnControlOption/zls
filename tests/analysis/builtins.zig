@@ -198,6 +198,17 @@ const type_enum_literal: @Type(.enum_literal) = .foo;
 const type_info = @typeInfo(u8);
 //    ^^^^^^^^^ (Type)()
 
+const TypeOf_u8 = @TypeOf(@as(u8, undefined));
+//    ^^^^^^^^^ (type)(u8)
+const TypeOf_u8_u16 = @TypeOf(@as(u8, undefined), @as(u16, undefined));
+//    ^^^^^^^^^^^^^ (type)(u16)
+const TypeOf_u16_u8 = @TypeOf(@as(u16, undefined), @as(u8, undefined));
+//    ^^^^^^^^^^^^^ (type)(u16)
+const TypeOf_i8_i16 = @TypeOf(@as(i8, undefined), @as(i16, undefined));
+//    ^^^^^^^^^^^^^ (type)(i16)
+const TypeOf_i16_i8 = @TypeOf(@as(i16, undefined), @as(i8, undefined));
+//    ^^^^^^^^^^^^^ (type)(i16)
+
 comptime {
     // Use @compileLog to verify the expected type with the compiler
     // @compileLog(vector_builtin_13);
