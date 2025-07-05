@@ -2250,11 +2250,18 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
                 return Type.fromIP(analyser, result_ty, null);
             }
 
-            // Almost the same as the above, return a type value though.
-            // TODO Do peer type resolution, we just keep the first for now.
             if (std.mem.eql(u8, call_name, "@TypeOf")) {
                 if (params.len < 1) return null;
-                var resolved_type = (try analyser.resolveTypeOfNodeInternal(.of(params[0], handle))) orelse return null;
+                var builder: Type.EitherBuilder = .init(analyser);
+                for (params) |param_node| {
+                    const ty = try analyser.resolveTypeOfNodeInternal(.of(param_node, handle)) orelse return null;
+                    const desc: NodeWithHandle = .of(param_node, handle);
+                    builder.add(ty, desc) catch |err| switch (err) {
+                        error.WrongTypeVal => return null,
+                        else => |e| return e,
+                    };
+                }
+                const resolved_type = try builder.resolve() orelse return null;
                 return try resolved_type.typeOf(analyser);
             }
 
