@@ -873,7 +873,30 @@ fn resolveGenericTypeInternal(
     if (!ty.is_type_val) {
         resolved = (try resolved.instanceTypeVal(analyser)).?;
     }
-    return resolved;
+    return try analyser.resolveEitherType(resolved);
+}
+
+fn resolveEitherType(analyser: *Analyser, ty: Type) !Type {
+    if (ty.data != .either) {
+        return ty;
+    }
+    if (ty.is_type_val) {
+        var instance = try ty.instanceTypeVal(analyser) orelse return ty;
+        instance = try analyser.resolveEitherType(instance);
+        return try instance.typeOf(analyser);
+    }
+    var builder: Type.EitherBuilder = .empty;
+    for (ty.data.either) |entry| {
+        const t: Type = .{
+            .data = entry.type_data,
+            .is_type_val = false,
+        };
+        builder.add(analyser.arena, t, entry.descriptor) catch |err| switch (err) {
+            error.WrongTypeVal => return ty,
+            else => |e| return e,
+        };
+    }
+    return try builder.resolve(analyser) orelse ty;
 }
 
 fn findReturnStatementInternal(tree: Ast, body: Ast.Node.Index, already_found: *bool) ?Ast.Node.Index {
