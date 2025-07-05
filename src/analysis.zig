@@ -1665,7 +1665,6 @@ fn resolveCallsiteReferences(analyser: *Analyser, decl_handle: DeclWithHandle) !
         else => return null,
     };
 
-    const tree = decl_handle.handle.tree;
     const is_cimport = std.mem.eql(u8, std.fs.path.basename(decl_handle.handle.uri), "cimport.zig");
 
     if (is_cimport or !analyser.collect_callsite_references) return null;
@@ -1675,18 +1674,9 @@ fn resolveCallsiteReferences(analyser: *Analyser, decl_handle: DeclWithHandle) !
     if (gop_resolved.found_existing) return gop_resolved.value_ptr.*;
     gop_resolved.value_ptr.* = null;
 
+    const func_type = try analyser.resolveTypeOfNodeInternal(.of(pay.func, decl_handle.handle)) orelse return null;
+    std.debug.assert(func_type.isFunc());
     const func_decl: Declaration = .{ .ast_node = pay.func };
-
-    var func_buf: [1]Ast.Node.Index = undefined;
-    const func = tree.fullFnProto(&func_buf, pay.func).?;
-
-    var func_params_len: usize = 0;
-
-    var it = func.iterate(&tree);
-    while (ast.nextFnParam(&it)) |_| {
-        func_params_len += 1;
-    }
-
     const refs = try references.callsiteReferences(
         analyser.arena,
         analyser,
@@ -1702,14 +1692,14 @@ fn resolveCallsiteReferences(analyser: *Analyser, decl_handle: DeclWithHandle) !
 
     for (refs.items) |ref| {
         const handle = analyser.store.getOrLoadHandle(ref.uri).?;
+        const tree = handle.tree;
 
         var call_buf: [1]Ast.Node.Index = undefined;
         const call = tree.fullCall(&call_buf, ref.call_node).?;
 
-        const real_param_idx = if (func_params_len != 0 and pay.param_index != 0 and call.ast.params.len == func_params_len - 1)
-            pay.param_index - 1
-        else
-            pay.param_index;
+        const resolved_func_type = try analyser.resolveFunctionTypeFromCall(handle, call, func_type);
+        const has_self_param = try analyser.isInstanceCall(handle, call, resolved_func_type);
+        const real_param_idx = pay.param_index - @intFromBool(has_self_param);
 
         if (real_param_idx >= call.ast.params.len) continue;
 
