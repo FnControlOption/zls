@@ -1708,8 +1708,7 @@ fn resolveCallsiteReferences(analyser: *Analyser, decl_handle: DeclWithHandle) !
         ty = try ty.typeOf(analyser);
         std.debug.assert(ty.is_type_val);
 
-        const loc = offsets.tokenToPosition(tree, tree.nodeMainToken(call.ast.params[real_param_idx]), .@"utf-8");
-        const desc = try std.fmt.allocPrint(analyser.arena, "{s}:{d}:{d}", .{ handle.uri, loc.line + 1, loc.character + 1 });
+        const desc: NodeWithHandle = .of(call.ast.params[real_param_idx], handle);
         builder.add(analyser.arena, ty, desc) catch |err| switch (err) {
             error.WrongTypeVal => return null,
             else => |e| return e,
@@ -2473,7 +2472,7 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             var builder: Type.EitherBuilder = .empty;
 
             if (try analyser.resolveTypeOfNodeInternal(.of(if_node.ast.then_expr, handle))) |t| {
-                const desc = offsets.nodeToSlice(tree, if_node.ast.cond_expr);
+                const desc: NodeWithHandle = .of(if_node.ast.cond_expr, handle);
                 builder.add(analyser.arena, t, desc) catch |err| switch (err) {
                     error.WrongTypeVal => return null,
                     else => |e| return e,
@@ -2481,7 +2480,7 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             }
             if (if_node.ast.else_expr.unwrap()) |else_expr| {
                 if (try analyser.resolveTypeOfNodeInternal(.of(else_expr, handle))) |t| {
-                    const desc = try std.fmt.allocPrint(analyser.arena, "!({s})", .{offsets.nodeToSlice(tree, if_node.ast.cond_expr)});
+                    const desc: NodeWithHandle = .of(else_expr, handle);
                     builder.add(analyser.arena, t, desc) catch |err| switch (err) {
                         error.WrongTypeVal => return null,
                         else => |e| return e,
@@ -2498,15 +2497,9 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             var builder: Type.EitherBuilder = .empty;
             for (switch_node.ast.cases) |case| {
                 const switch_case = tree.fullSwitchCase(case).?;
-                var descriptor: std.ArrayListUnmanaged(u8) = .empty;
-
-                for (switch_case.ast.values, 0..) |values, index| {
-                    try descriptor.appendSlice(analyser.arena, offsets.nodeToSlice(tree, values));
-                    if (index != switch_case.ast.values.len - 1) try descriptor.appendSlice(analyser.arena, ", ");
-                }
 
                 if (try analyser.resolveTypeOfNodeInternal(.of(switch_case.ast.target_expr, handle))) |t| {
-                    const desc = try descriptor.toOwnedSlice(analyser.arena);
+                    const desc: NodeWithHandle = .of(case, handle);
                     builder.add(analyser.arena, t, desc) catch |err| switch (err) {
                         error.WrongTypeVal => return null,
                         else => |e| return e,
@@ -3162,7 +3155,7 @@ pub const Type = struct {
         pub const EitherEntry = struct {
             /// the `is_type_val` property is inherited from the containing `Type`
             type_data: Data,
-            descriptor: []const u8,
+            descriptor: NodeWithHandle,
         };
 
         pub fn hashWithHasher(data: Data, hasher: anytype) void {
@@ -3220,7 +3213,8 @@ pub const Type = struct {
                 },
                 .either => |entries| {
                     for (entries) |entry| {
-                        hasher.update(entry.descriptor);
+                        std.hash.autoHash(hasher, entry.descriptor.node);
+                        hasher.update(entry.descriptor.handle.uri);
                         entry.type_data.hashWithHasher(hasher);
                     }
                 },
@@ -3307,7 +3301,7 @@ pub const Type = struct {
 
                     if (a_entries.len != b_entries.len) return false;
                     for (a_entries, b_entries) |a_entry, b_entry| {
-                        if (!std.mem.eql(u8, a_entry.descriptor, b_entry.descriptor)) return false;
+                        if (!a_entry.descriptor.eql(b_entry.descriptor)) return false;
                         if (!a_entry.type_data.eql(b_entry.type_data)) return false;
                     }
                 },
@@ -3547,7 +3541,7 @@ pub const Type = struct {
             }
         };
 
-        fn add(builder: *EitherBuilder, arena: std.mem.Allocator, ty: Type, descriptor: []const u8) !void {
+        fn add(builder: *EitherBuilder, arena: std.mem.Allocator, ty: Type, descriptor: NodeWithHandle) !void {
             switch (ty.data) {
                 .compile_error => {},
                 else => {
