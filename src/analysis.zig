@@ -1684,7 +1684,7 @@ fn resolveCallsiteReferences(analyser: *Analyser, decl_handle: DeclWithHandle) !
     // TODO: Set `workspace` to true; current problems
     // - we gather dependencies, not dependents
 
-    var possible: std.ArrayListUnmanaged(Type.TypeWithDescriptor) = .empty;
+    var builder: Type.EitherBuilder = .empty;
 
     for (refs.items) |ref| {
         const handle = analyser.store.getOrLoadHandle(ref.uri).?;
@@ -1719,13 +1719,14 @@ fn resolveCallsiteReferences(analyser: *Analyser, decl_handle: DeclWithHandle) !
         std.debug.assert(ty.is_type_val);
 
         const loc = offsets.tokenToPosition(tree, tree.nodeMainToken(call.ast.params[real_param_idx]), .@"utf-8");
-        try possible.append(analyser.arena, .{
-            .type = ty,
-            .descriptor = try std.fmt.allocPrint(analyser.arena, "{s}:{d}:{d}", .{ handle.uri, loc.line + 1, loc.character + 1 }),
-        });
+        const desc = try std.fmt.allocPrint(analyser.arena, "{s}:{d}:{d}", .{ handle.uri, loc.line + 1, loc.character + 1 });
+        builder.add(analyser.arena, ty, desc) catch |err| switch (err) {
+            error.WrongTypeVal => return null,
+            else => |e| return e,
+        };
     }
 
-    const maybe_type = try Type.fromEither(analyser, possible.items);
+    const maybe_type = try builder.resolve(analyser);
     if (maybe_type) |ty| analyser.resolved_callsites.getPtr(pay).?.* = ty;
     return maybe_type;
 }
@@ -2479,24 +2480,32 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
         .@"if", .if_simple => {
             const if_node = ast.fullIf(tree, node).?;
 
-            var either: std.BoundedArray(Type.TypeWithDescriptor, 2) = .{};
+            var builder: Type.EitherBuilder = .empty;
 
             if (try analyser.resolveTypeOfNodeInternal(.of(if_node.ast.then_expr, handle))) |t| {
-                either.appendAssumeCapacity(.{ .type = t, .descriptor = offsets.nodeToSlice(tree, if_node.ast.cond_expr) });
+                const desc = offsets.nodeToSlice(tree, if_node.ast.cond_expr);
+                builder.add(analyser.arena, t, desc) catch |err| switch (err) {
+                    error.WrongTypeVal => return null,
+                    else => |e| return e,
+                };
             }
             if (if_node.ast.else_expr.unwrap()) |else_expr| {
                 if (try analyser.resolveTypeOfNodeInternal(.of(else_expr, handle))) |t| {
-                    either.appendAssumeCapacity(.{ .type = t, .descriptor = try std.fmt.allocPrint(analyser.arena, "!({s})", .{offsets.nodeToSlice(tree, if_node.ast.cond_expr)}) });
+                    const desc = try std.fmt.allocPrint(analyser.arena, "!({s})", .{offsets.nodeToSlice(tree, if_node.ast.cond_expr)});
+                    builder.add(analyser.arena, t, desc) catch |err| switch (err) {
+                        error.WrongTypeVal => return null,
+                        else => |e| return e,
+                    };
                 }
             }
-            return Type.fromEither(analyser, either.constSlice());
+            return try builder.resolve(analyser);
         },
         .@"switch",
         .switch_comma,
         => {
             const switch_node = tree.switchFull(node);
 
-            var either: std.ArrayListUnmanaged(Type.TypeWithDescriptor) = .empty;
+            var builder: Type.EitherBuilder = .empty;
             for (switch_node.ast.cases) |case| {
                 const switch_case = tree.fullSwitchCase(case).?;
                 var descriptor: std.ArrayListUnmanaged(u8) = .empty;
@@ -2506,14 +2515,16 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
                     if (index != switch_case.ast.values.len - 1) try descriptor.appendSlice(analyser.arena, ", ");
                 }
 
-                if (try analyser.resolveTypeOfNodeInternal(.of(switch_case.ast.target_expr, handle))) |t|
-                    try either.append(analyser.arena, .{
-                        .type = t,
-                        .descriptor = try descriptor.toOwnedSlice(analyser.arena),
-                    });
+                if (try analyser.resolveTypeOfNodeInternal(.of(switch_case.ast.target_expr, handle))) |t| {
+                    const desc = try descriptor.toOwnedSlice(analyser.arena);
+                    builder.add(analyser.arena, t, desc) catch |err| switch (err) {
+                        error.WrongTypeVal => return null,
+                        else => |e| return e,
+                    };
+                }
             }
 
-            return Type.fromEither(analyser, either.items);
+            return try builder.resolve(analyser);
         },
         .@"while",
         .while_simple,
@@ -3515,6 +3526,84 @@ pub const Type = struct {
         }
     };
 
+    const EitherBuilder = struct {
+        const empty: EitherBuilder = .{
+            .has_type_val = null,
+            .deduplicator = .empty,
+        };
+
+        /// null when deduplicator is empty or only contains compile errors
+        has_type_val: ?bool,
+        deduplicator: Deduplicator,
+
+        const Deduplicator = std.ArrayHashMapUnmanaged(Type.Data.EitherEntry, void, DeduplicatorContext, true);
+
+        // Note that we don't hash/equate descriptors to remove
+        // duplicates
+
+        const DeduplicatorContext = struct {
+            pub fn hash(self: @This(), item: Type.Data.EitherEntry) u32 {
+                _ = self;
+                const ty: Type = .{ .data = item.type_data, .is_type_val = true };
+                return ty.hash32();
+            }
+
+            pub fn eql(self: @This(), a: Type.Data.EitherEntry, b: Type.Data.EitherEntry, b_index: usize) bool {
+                _ = b_index;
+                _ = self;
+                const a_ty: Type = .{ .data = a.type_data, .is_type_val = true };
+                const b_ty: Type = .{ .data = b.type_data, .is_type_val = true };
+                return a_ty.eql(b_ty);
+            }
+        };
+
+        fn add(builder: *EitherBuilder, arena: std.mem.Allocator, ty: Type, descriptor: []const u8) !void {
+            switch (ty.data) {
+                .compile_error => {},
+                else => {
+                    if (builder.has_type_val) |has_type_val| {
+                        if (has_type_val != ty.is_type_val) {
+                            return error.WrongTypeVal;
+                        }
+                    } else {
+                        builder.has_type_val = ty.is_type_val;
+                    }
+                },
+            }
+            const entry: Type.Data.EitherEntry = .{
+                .type_data = ty.data,
+                .descriptor = descriptor,
+            };
+            try builder.deduplicator.put(arena, entry, {});
+        }
+
+        fn resolve(builder: EitherBuilder, analyser: *Analyser) !?Type {
+            const entries = builder.deduplicator.keys();
+
+            if (entries.len == 0)
+                return null;
+
+            const has_type_val = builder.has_type_val orelse false;
+
+            var chosen: Type = .{
+                .data = entries[0].type_data,
+                .is_type_val = has_type_val,
+            };
+            for (entries[1..]) |entry| {
+                const candidate: Type = .{
+                    .data = entry.type_data,
+                    .is_type_val = has_type_val,
+                };
+                chosen = try analyser.resolvePeerTypes(chosen, candidate) orelse
+                    return .{
+                        .data = .{ .either = entries },
+                        .is_type_val = has_type_val,
+                    };
+            }
+            return chosen;
+        }
+    };
+
     pub fn hash32(self: Type) u32 {
         return @truncate(self.hash64());
     }
@@ -3561,81 +3650,6 @@ pub const Type = struct {
         return .{
             .data = .{ .ip_index = .{ .type = ty, .index = index } },
             .is_type_val = ty == .type_type,
-        };
-    }
-
-    pub const TypeWithDescriptor = struct {
-        type: Type,
-        descriptor: []const u8,
-    };
-
-    pub fn fromEither(analyser: *Analyser, entries: []const TypeWithDescriptor) error{OutOfMemory}!?Type {
-        const arena = analyser.arena;
-        if (entries.len == 0)
-            return null;
-
-        if (entries.len == 1)
-            return entries[0].type;
-
-        peer_type_resolution: {
-            var chosen = entries[0].type;
-            for (entries[1..]) |entry| {
-                const candidate = entry.type;
-                chosen = try analyser.resolvePeerTypes(chosen, candidate) orelse break :peer_type_resolution;
-            }
-            return chosen;
-        }
-
-        // Note that we don't hash/equate descriptors to remove
-        // duplicates
-
-        const DeduplicatorContext = struct {
-            pub fn hash(self: @This(), item: Type.Data.EitherEntry) u32 {
-                _ = self;
-                const ty: Type = .{ .data = item.type_data, .is_type_val = true };
-                return ty.hash32();
-            }
-
-            pub fn eql(self: @This(), a: Type.Data.EitherEntry, b: Type.Data.EitherEntry, b_index: usize) bool {
-                _ = b_index;
-                _ = self;
-                const a_ty: Type = .{ .data = a.type_data, .is_type_val = true };
-                const b_ty: Type = .{ .data = b.type_data, .is_type_val = true };
-                return a_ty.eql(b_ty);
-            }
-        };
-        const Deduplicator = std.ArrayHashMapUnmanaged(Type.Data.EitherEntry, void, DeduplicatorContext, true);
-
-        var deduplicator: Deduplicator = .empty;
-        defer deduplicator.deinit(arena);
-
-        const has_type_val = for (entries) |entry| {
-            if (entry.type.data == .compile_error) {
-                continue;
-            }
-            break entry.type.is_type_val;
-        } else entries[0].type.is_type_val;
-
-        for (entries) |entry| {
-            try deduplicator.put(
-                arena,
-                .{ .type_data = entry.type.data, .descriptor = entry.descriptor },
-                {},
-            );
-            if (entry.type.data == .compile_error) {
-                continue;
-            }
-            if (entry.type.is_type_val != has_type_val) {
-                return null;
-            }
-        }
-
-        if (deduplicator.count() == 1)
-            return entries[0].type;
-
-        return .{
-            .data = .{ .either = try arena.dupe(Type.Data.EitherEntry, deduplicator.keys()) },
-            .is_type_val = has_type_val,
         };
     }
 
