@@ -9,6 +9,10 @@ const s: S = .{
 
 pub fn main() !void {
     var runtime_bool: bool = true;
+    var runtime_optional_i8: ?i8 = 0;
+    var runtime_optional_i16: ?i16 = 0;
+    var runtime_error_union_i8: error{E}!i8 = 0;
+    var runtime_error_union_i16: error{E}!i16 = 0;
 
     const widened_int_0 = if (runtime_bool) @as(i8, 0) else @as(i16, 0);
     _ = widened_int_0;
@@ -17,6 +21,22 @@ pub fn main() !void {
     const widened_int_1 = if (runtime_bool) @as(i16, 0) else @as(i8, 0);
     _ = widened_int_1;
     //  ^^^^^^^^^^^^^ (i16)()
+
+    const orelse_0 = runtime_optional_i8 orelse @as(i16, 0);
+    _ = orelse_0;
+    //  ^^^^^^^^ (i16)()
+
+    const orelse_1 = runtime_optional_i16 orelse @as(i8, 0);
+    _ = orelse_1;
+    //  ^^^^^^^^ (i16)()
+
+    const catch_0 = runtime_error_union_i8 catch @as(i16, 0);
+    _ = catch_0;
+    //  ^^^^^^^ (i16)()
+
+    const catch_1 = runtime_error_union_i16 catch @as(i8, 0);
+    _ = catch_1;
+    //  ^^^^^^^ (i16)()
 
     const optional_0 = if (runtime_bool) s else @as(?S, s);
     _ = optional_0;
@@ -174,6 +194,10 @@ pub fn main() !void {
     // @compileLog(error_union_0);
 
     _ = &runtime_bool;
+    _ = &runtime_optional_i8;
+    _ = &runtime_optional_i16;
+    _ = &runtime_error_union_i8;
+    _ = &runtime_error_union_i16;
 }
 
 const comptime_bool: bool = true;

@@ -78,6 +78,7 @@ fn catch_capture() void {
         //                 ^^^ (error{A})()
         _ = baz;
         //  ^^^ (error{A})()
+        return;
     };
     _ = bar;
     //  ^^^ (i32)()
