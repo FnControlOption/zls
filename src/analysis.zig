@@ -969,13 +969,6 @@ pub fn resolveOptionalUnwrap(analyser: *Analyser, optional: Type) error{OutOfMem
     }
 }
 
-pub fn resolveOrelseType(analyser: *Analyser, lhs: Type, rhs: Type) error{OutOfMemory}!?Type {
-    return switch (rhs.data) {
-        .optional => rhs,
-        else => try analyser.resolveOptionalUnwrap(lhs),
-    };
-}
-
 pub fn resolveAddressOf(analyser: *Analyser, is_const: bool, ty: Type) error{OutOfMemory}!Type {
     return .{
         .data = .{
@@ -1995,17 +1988,39 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
 
             const lhs = try analyser.resolveTypeOfNodeInternal(.of(lhs_node, handle)) orelse return null;
+            const lhs_unwrapped = try analyser.resolveOptionalUnwrap(lhs) orelse return null;
 
-            const rhs = try analyser.resolveTypeOfNodeInternal(.of(rhs_node, handle)) orelse return try analyser.resolveOptionalUnwrap(lhs);
+            const rhs = try analyser.resolveTypeOfNodeInternal(.of(rhs_node, handle)) orelse return null;
 
-            return try analyser.resolveOrelseType(lhs, rhs);
+            var builder: Type.EitherBuilder = .init(analyser);
+            builder.add(lhs_unwrapped, .of(lhs_node, handle)) catch |err| switch (err) {
+                error.WrongTypeVal => return null,
+                else => |e| return e,
+            };
+            builder.add(rhs, .of(rhs_node, handle)) catch |err| switch (err) {
+                error.WrongTypeVal => return null,
+                else => |e| return e,
+            };
+            return try builder.resolve();
         },
         .@"catch" => {
-            const lhs_node, _ = tree.nodeData(node).node_and_node;
+            const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
 
             const lhs = try analyser.resolveTypeOfNodeInternal(.of(lhs_node, handle)) orelse return null;
+            const lhs_unwrapped = try analyser.resolveUnwrapErrorUnionType(lhs, .payload) orelse return null;
 
-            return try analyser.resolveUnwrapErrorUnionType(lhs, .payload);
+            const rhs = try analyser.resolveTypeOfNodeInternal(.of(rhs_node, handle)) orelse return null;
+
+            var builder: Type.EitherBuilder = .init(analyser);
+            builder.add(lhs_unwrapped, .of(lhs_node, handle)) catch |err| switch (err) {
+                error.WrongTypeVal => return null,
+                else => |e| return e,
+            };
+            builder.add(rhs, .of(rhs_node, handle)) catch |err| switch (err) {
+                error.WrongTypeVal => return null,
+                else => |e| return e,
+            };
+            return try builder.resolve();
         },
         .@"try" => {
             const expr_node = tree.nodeData(node).node;
