@@ -5528,16 +5528,19 @@ pub const DeclWithHandle = struct {
                     return null;
                 }
 
-                // TODO Peer type resolution, we just use the first resolvable item for now.
+                var builder: Type.EitherBuilder = .init(analyser);
                 for (case.ast.values) |case_value| {
                     if (tree.nodeTag(case_value) != .enum_literal) continue;
                     const name_token = tree.nodeMainToken(case_value);
                     const name = offsets.identifierTokenToNameSlice(tree, name_token);
                     const decl = try switch_expr_type.lookupSymbol(analyser, name) orelse continue;
-                    break :blk (try decl.resolveType(analyser)) orelse continue;
+                    const ty = try decl.resolveType(analyser) orelse return null;
+                    builder.add(ty, .of(case_value, self.handle)) catch |err| switch (err) {
+                        error.WrongTypeVal => return null,
+                        else => |e| return e,
+                    };
                 }
-
-                return null;
+                break :blk try builder.resolve();
             },
             .error_token => return null,
         } orelse return null;
