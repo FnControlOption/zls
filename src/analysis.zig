@@ -1797,52 +1797,68 @@ fn resolveFunctionTypeFromCall(
     return try analyser.resolveGenericType(func_ty, meta_params);
 }
 
+fn addBreakResultTypes(
+    analyser: *Analyser,
+    node_handle: NodeWithHandle,
+    label: ?[]const u8,
+    kind: FindBreaks.Kind,
+    builder: *Type.EitherBuilder,
+) !void {
+    const node = node_handle.node;
+    const handle = node_handle.handle;
+    const tree = handle.tree;
+
+    var context: FindBreaks = .{
+        .label = label,
+        .kind = kind,
+        .allocator = analyser.gpa,
+    };
+    defer context.deinit();
+    try context.findBreakStatements(tree, node);
+
+    for (context.break_statements.items) |break_node| {
+        _, const opt_operand = tree.nodeData(break_node).opt_token_and_opt_node;
+        const operand = opt_operand.unwrap() orelse {
+            const ty = Type.fromIP(analyser, .void_type, .void_value);
+            try builder.add(ty, .of(break_node, handle));
+            continue;
+        };
+        const operand_type = try analyser.resolveTypeOfNodeInternal(.of(operand, handle)) orelse {
+            return error.UnknownOperand;
+        };
+        try builder.add(operand_type, .of(operand, handle));
+    }
+}
+
 const FindBreaks = struct {
     const Error = error{OutOfMemory};
+    const Kind = enum { loop, block, switch_ };
 
     label: ?[]const u8,
-    allow_unlabeled: bool,
+    kind: Kind,
     allocator: std.mem.Allocator,
-    break_operands: std.ArrayListUnmanaged(Ast.Node.Index) = .empty,
+    break_statements: std.ArrayListUnmanaged(Ast.Node.Index) = .empty,
 
     fn deinit(context: *FindBreaks) void {
-        context.break_operands.deinit(context.allocator);
+        context.break_statements.deinit(context.allocator);
     }
 
-    fn findBreakOperands(context: *FindBreaks, tree: Ast, node: Ast.Node.Index) Error!void {
+    fn findBreakStatements(context: *FindBreaks, tree: Ast, node: Ast.Node.Index) Error!void {
         std.debug.assert(node != .root);
 
-        const allow_unlabeled = context.allow_unlabeled;
-
-        switch (tree.nodeTag(node)) {
-            .@"break" => {
-                const opt_label_token, const operand = tree.nodeData(node).opt_token_and_opt_node;
-                if (allow_unlabeled and opt_label_token == .none) {
-                    try context.break_operands.append(context.allocator, operand.unwrap() orelse return);
-                } else if (context.label) |label| {
-                    if (opt_label_token.unwrap()) |label_token| {
-                        if (std.mem.eql(u8, label, tree.tokenSlice(label_token))) {
-                            try context.break_operands.append(context.allocator, operand.unwrap() orelse return);
-                        }
-                    }
-                }
-            },
-
-            .@"while",
-            .while_simple,
-            .while_cont,
-            .@"for",
-            .for_simple,
-            => {
-                context.allow_unlabeled = false;
-                try ast.iterateChildren(tree, node, context, Error, findBreakOperands);
-                context.allow_unlabeled = allow_unlabeled;
-            },
-
-            else => {
-                try ast.iterateChildren(tree, node, context, Error, findBreakOperands);
-            },
+        if (tree.nodeTag(node) == .@"break") {
+            const is_matching_break = blk: {
+                const opt_label_token, _ = tree.nodeData(node).opt_token_and_opt_node;
+                const label_token = opt_label_token.unwrap() orelse break :blk context.kind == .loop;
+                const label = context.label orelse break :blk false;
+                break :blk std.mem.eql(u8, label, tree.tokenSlice(label_token));
+            };
+            if (is_matching_break) {
+                try context.break_statements.append(context.allocator, node);
+            }
         }
+
+        try ast.iterateChildren(tree, node, context, Error, findBreakStatements);
     }
 };
 
@@ -2559,6 +2575,14 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
                 }
             }
 
+            if (switch_node.label_token) |label_token| {
+                const label = tree.tokenSlice(label_token);
+                analyser.addBreakResultTypes(.of(node, handle), label, .switch_, &builder) catch |err| switch (err) {
+                    error.WrongTypeVal, error.UnknownOperand => return null,
+                    else => |e| return e,
+                };
+            }
+
             return try builder.resolve();
         },
         .@"while",
@@ -2586,23 +2610,22 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             else
                 unreachable;
 
-            const else_expr = loop.else_expr.unwrap() orelse return null;
+            const else_expr, const else_type = if (loop.else_expr.unwrap()) |else_expr|
+                .{ else_expr, try analyser.resolveTypeOfNodeInternal(.of(else_expr, handle)) orelse return null }
+            else
+                .{ node, Type.fromIP(analyser, .void_type, .void_value) };
 
-            // TODO: peer type resolution based on `else` and all `break` statements
-            if (try analyser.resolveTypeOfNodeInternal(.of(else_expr, handle))) |else_type|
-                return else_type;
-
-            var context: FindBreaks = .{
-                .label = if (loop.label_token) |token| tree.tokenSlice(token) else null,
-                .allow_unlabeled = true,
-                .allocator = analyser.gpa,
+            const label = if (loop.label_token) |token| tree.tokenSlice(token) else null;
+            var builder: Type.EitherBuilder = .init(analyser);
+            analyser.addBreakResultTypes(.of(loop.then_expr, handle), label, .loop, &builder) catch |err| switch (err) {
+                error.WrongTypeVal, error.UnknownOperand => return null,
+                else => |e| return e,
             };
-            defer context.deinit();
-            try context.findBreakOperands(tree, loop.then_expr);
-            for (context.break_operands.items) |operand| {
-                if (try analyser.resolveTypeOfNodeInternal(.of(operand, handle))) |operand_type|
-                    return operand_type;
-            }
+            builder.add(else_type, .of(else_expr, handle)) catch |err| switch (err) {
+                error.WrongTypeVal => return null,
+                else => |e| return e,
+            };
+            return try builder.resolve();
         },
         .block,
         .block_semicolon,
@@ -2626,18 +2649,12 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             };
             const block_label = offsets.identifierTokenToNameSlice(tree, label_token);
 
-            // TODO: peer type resolution based on all `break` statements
-            var context: FindBreaks = .{
-                .label = block_label,
-                .allow_unlabeled = false,
-                .allocator = analyser.gpa,
+            var builder: Type.EitherBuilder = .init(analyser);
+            analyser.addBreakResultTypes(.of(node, handle), block_label, .block, &builder) catch |err| switch (err) {
+                error.WrongTypeVal, error.UnknownOperand => return null,
+                else => |e| return e,
             };
-            defer context.deinit();
-            try context.findBreakOperands(tree, node);
-            for (context.break_operands.items) |operand| {
-                if (try analyser.resolveTypeOfNodeInternal(.of(operand, handle))) |operand_type|
-                    return operand_type;
-            }
+            return try builder.resolve();
         },
 
         .for_range => {},

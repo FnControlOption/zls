@@ -38,6 +38,132 @@ pub fn main() !void {
     _ = catch_1;
     //  ^^^^^^^ (i16)()
 
+    const switch_0 = switch (runtime_bool) {
+        true => @as(i8, 0),
+        false => @as(i16, 0),
+    };
+    _ = switch_0;
+    //  ^^^^^^^^ (i16)()
+
+    const switch_1 = switch (runtime_bool) {
+        true => @as(i16, 0),
+        false => @as(i8, 0),
+    };
+    _ = switch_1;
+    //  ^^^^^^^^ (i16)()
+
+    const switch_2 = blk: switch (runtime_bool) {
+        true => @as(i8, 0),
+        false => break :blk @as(i16, 0),
+    };
+    _ = switch_2;
+    //  ^^^^^^^^ (i16)()
+
+    const switch_3 = blk: switch (runtime_bool) {
+        true => @as(i16, 0),
+        false => break :blk @as(i8, 0),
+    };
+    _ = switch_3;
+    //  ^^^^^^^^ (i16)()
+
+    const switch_4 = blk: switch (runtime_bool) {
+        true => break :blk @as(i8, 0),
+        false => break :blk @as(i16, 0),
+    };
+    _ = switch_4;
+    //  ^^^^^^^^ (i16)()
+
+    const switch_5 = blk: switch (runtime_bool) {
+        true => break :blk @as(i16, 0),
+        false => break :blk @as(i8, 0),
+    };
+    _ = switch_5;
+    //  ^^^^^^^^ (i16)()
+
+    const while_0 = while (runtime_bool) {
+        if (runtime_bool)
+            break @as(i8, 0);
+    } else @as(i16, 0);
+    _ = while_0;
+    //  ^^^^^^^ (i16)()
+
+    const while_1 = while (runtime_bool) {
+        if (runtime_bool)
+            break @as(i16, 0);
+    } else @as(i8, 0);
+    _ = while_1;
+    //  ^^^^^^^ (i16)()
+
+    const while_2 = blk: while (runtime_bool) {
+        if (runtime_bool)
+            break :blk @as(i8, 0);
+    } else @as(i16, 0);
+    _ = while_2;
+    //  ^^^^^^^ (i16)()
+
+    const while_3 = blk: while (runtime_bool) {
+        if (runtime_bool)
+            break :blk @as(i16, 0);
+    } else @as(i8, 0);
+    _ = while_3;
+    //  ^^^^^^^ (i16)()
+
+    const while_with_nested_breaks = while (runtime_bool) {
+        if (runtime_bool)
+            break;
+        break blk: {
+            if (runtime_bool)
+                break :blk null;
+            break error.BreakLoop;
+        };
+    };
+    _ = while_with_nested_breaks;
+    //  ^^^^^^^^^^^^^^^^^^^^^^^^ (either type)() TODO this should be `error{BreakLoop}!?void`
+
+    const for_0 = for (0..3) |_| {
+        if (runtime_bool)
+            break @as(i8, 0);
+    } else @as(i16, 0);
+    _ = for_0;
+    //  ^^^^^ (i16)()
+
+    const for_1 = for (0..3) |_| {
+        if (runtime_bool)
+            break @as(i16, 0);
+    } else @as(i8, 0);
+    _ = for_1;
+    //  ^^^^^ (i16)()
+
+    const for_2 = blk: for (0..3) |_| {
+        if (runtime_bool)
+            break :blk @as(i8, 0);
+    } else @as(i16, 0);
+    _ = for_2;
+    //  ^^^^^ (i16)()
+
+    const for_3 = blk: for (0..3) |_| {
+        if (runtime_bool)
+            break :blk @as(i16, 0);
+    } else @as(i8, 0);
+    _ = for_3;
+    //  ^^^^^ (i16)()
+
+    const block_0 = blk: {
+        if (runtime_bool)
+            break :blk @as(i8, 0);
+        break :blk @as(i16, 0);
+    };
+    _ = block_0;
+    //  ^^^^^^^ (i16)()
+
+    const block_1 = blk: {
+        if (runtime_bool)
+            break :blk @as(i16, 0);
+        break :blk @as(i8, 0);
+    };
+    _ = block_1;
+    //  ^^^^^^^ (i16)()
+
     const optional_0 = if (runtime_bool) s else @as(?S, s);
     _ = optional_0;
     //  ^^^^^^^^^^ (?S)()
