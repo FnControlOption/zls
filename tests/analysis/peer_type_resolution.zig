@@ -118,7 +118,7 @@ pub fn main() !void {
         };
     };
     _ = while_with_nested_breaks;
-    //  ^^^^^^^^^^^^^^^^^^^^^^^^ (either type)() TODO this should be `error{BreakLoop}!?void`
+    //  ^^^^^^^^^^^^^^^^^^^^^^^^ (error{BreakLoop}!?void)()
 
     const for_0 = for (0..3) |_| {
         if (runtime_bool)

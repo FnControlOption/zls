@@ -396,6 +396,31 @@ test "decl literal" {
     , "");
 }
 
+test "foobar" {
+    try testHoverWithOptions(
+        \\const while_with_nested_breaks<cursor> = while (runtime_bool) {
+        \\    if (runtime_bool)
+        \\        break;
+        \\    break blk: {
+        \\        if (runtime_bool)
+        \\            break :blk null;
+        \\        break error.BreakLoop;
+        \\    };
+        \\};
+    ,
+        \\const while_with_nested_breaks = while (runtime_bool) {
+        \\    if (runtime_bool)
+        \\        break;
+        \\    break blk: {
+        \\        if (runtime_bool)
+        \\            break :blk null;
+        \\        break error.BreakLoop;
+        \\    };
+        \\}
+        \\(error{BreakLoop}!?void)
+    , .{ .markup_kind = .plaintext });
+}
+
 test "decl literal function" {
     try testHover(
         \\const S = struct {
