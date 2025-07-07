@@ -1902,6 +1902,25 @@ fn coerceInt(
     }
 }
 
+fn resolvePeerPayloadType(ip: *InternPool, gpa: Allocator, ty: Index, err_set_ty: *Index) !?Index {
+    const tag = ip.zigTypeTag(ty) orelse return ty;
+    const payload, const error_set = switch (tag) {
+        .error_set => .{ null, ty },
+        .error_union => blk: {
+            const info = ip.indexToKey(ty).error_union_type;
+            break :blk .{ info.payload_type, info.error_set_type };
+        },
+        else => .{ ty, null },
+    };
+    if (error_set) |e| {
+        switch (err_set_ty.*) {
+            .none => err_set_ty.* = e,
+            else => err_set_ty.* = try ip.errorSetMerge(gpa, err_set_ty.*, e),
+        }
+    }
+    return payload;
+}
+
 pub fn resolvePeerTypes(ip: *InternPool, gpa: Allocator, types: []const Index, target: std.Target) Allocator.Error!Index {
     if (std.debug.runtime_safety) {
         for (types) |ty| {
@@ -1919,16 +1938,24 @@ pub fn resolvePeerTypes(ip: *InternPool, gpa: Allocator, types: []const Index, t
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    var chosen = types[0];
     // If this is non-null then it does the following thing, depending on the chosen zigTypeTag().
     //  * ErrorSet: this is an override
     //  * ErrorUnion: this is an override of the error set only
     //  * other: at the end we make an ErrorUnion with the other thing and this
-    const err_set_ty: Index = Index.none;
+    var err_set_ty: Index = .none;
+
+    var chosen = for (types) |ty| {
+        break try ip.resolvePeerPayloadType(gpa, ty, &err_set_ty) orelse continue;
+    } else {
+        return err_set_ty;
+    };
+
     var any_are_null = false;
     var seen_const = false;
     var convert_to_slice = false;
-    for (types[1..]) |candidate| {
+    for (types[1..]) |ty| {
+        const candidate = try ip.resolvePeerPayloadType(gpa, ty, &err_set_ty) orelse continue;
+
         if (candidate == chosen) continue;
 
         const candidate_key: Key = ip.indexToKey(candidate);
@@ -2200,8 +2227,8 @@ pub fn resolvePeerTypes(ip: *InternPool, gpa: Allocator, types: []const Index, t
                     .pointer_type => |chosen_ptr_info| {
                         seen_const = seen_const or chosen_ptr_info.flags.is_const or candidate_info.flags.is_const;
 
-                        // *[N]T to ?![*]T
-                        // *[N]T to ?![]T
+                        // *[N]T to ?[*]T
+                        // *[N]T to ?[]T
                         if (candidate_info.flags.size == .one and
                             ip.indexToKey(candidate_info.elem_type) == .array_type and
                             (chosen_ptr_info.flags.size == .many or chosen_ptr_info.flags.size == .slice))
@@ -2258,13 +2285,6 @@ pub fn resolvePeerTypes(ip: *InternPool, gpa: Allocator, types: []const Index, t
             .vector_type => switch (chosen_key) {
                 .array_type => {
                     chosen = candidate;
-                    continue;
-                },
-                else => {},
-            },
-            .error_set_type => switch (chosen_key) {
-                .error_set_type => {
-                    chosen = try ip.errorSetMerge(gpa, chosen, candidate);
                     continue;
                 },
                 else => {},
@@ -2374,7 +2394,11 @@ pub fn resolvePeerTypes(ip: *InternPool, gpa: Allocator, types: []const Index, t
         } });
     }
 
-    return chosen;
+    const set_ty = if (err_set_ty != .none) err_set_ty else return chosen;
+    return try ip.get(gpa, .{ .error_union_type = .{
+        .error_set_type = set_ty,
+        .payload_type = chosen,
+    } });
 }
 
 const InMemoryCoercionResult = union(enum) {
@@ -5241,8 +5265,37 @@ test "resolvePeerTypes error sets" {
         .names = try ip.getStringSlice(gpa, &.{ bar_name, foo_name }),
     } });
 
+    const @"error{foo}!i32" = try ip.get(gpa, .{ .error_union_type = .{
+        .error_set_type = @"error{foo}",
+        .payload_type = .i32_type,
+    } });
+
+    const @"anyerror!i32" = try ip.get(gpa, .{ .error_union_type = .{
+        .error_set_type = .anyerror_type,
+        .payload_type = .i32_type,
+    } });
+
+    const @"error{foo,bar}!i32" = try ip.get(gpa, .{ .error_union_type = .{
+        .error_set_type = @"error{foo,bar}",
+        .payload_type = .i32_type,
+    } });
+
+    const @"error{bar,foo}!i32" = try ip.get(gpa, .{ .error_union_type = .{
+        .error_set_type = @"error{bar,foo}",
+        .payload_type = .i32_type,
+    } });
+
     try ip.testResolvePeerTypesInOrder(@"error{foo}", @"error{bar}", @"error{foo,bar}");
     try ip.testResolvePeerTypesInOrder(@"error{bar}", @"error{foo}", @"error{bar,foo}");
+
+    try ip.testResolvePeerTypes(@"error{foo}", .i32_type, @"error{foo}!i32");
+    try ip.testResolvePeerTypes(.anyerror_type, .i32_type, @"anyerror!i32");
+
+    try ip.testResolvePeerTypes(.anyerror_type, @"error{foo}!i32", @"anyerror!i32");
+    try ip.testResolvePeerTypes(@"anyerror!i32", @"error{foo}!i32", @"anyerror!i32");
+
+    try ip.testResolvePeerTypesInOrder(@"error{foo}!i32", @"error{bar}", @"error{foo,bar}!i32");
+    try ip.testResolvePeerTypesInOrder(@"error{bar}", @"error{foo}!i32", @"error{bar,foo}!i32");
 }
 
 fn testResolvePeerTypes(ip: *InternPool, a: Index, b: Index, expected: Index) !void {
