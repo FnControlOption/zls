@@ -576,7 +576,7 @@ test "method call" {
         .{ "baz", .variable, .{ .declaration = true, .static = true } },
         .{ "=", .operator, .{} },
         .{ "bar", .variable, .{ .static = true } },
-        .{ "toByte", .function, .{} }, // TODO: this should be method
+        .{ "toByte", .method, .{} },
     });
 }
 
@@ -606,7 +606,7 @@ test "method call - root struct" {
         .{ "baz", .variable, .{ .declaration = true, .static = true } },
         .{ "=", .operator, .{} },
         .{ "bar", .variable, .{ .static = true } },
-        .{ "toByte", .function, .{} }, // TODO: this should be method
+        .{ "toByte", .method, .{} },
     });
 }
 

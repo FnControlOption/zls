@@ -736,6 +736,7 @@ fn resolveVarDeclAliasInternal(analyser: *Analyser, options: ResolveOptions, nod
     const node_with_uri: NodeWithUri = .{
         .node = node_handle.node,
         .uri = node_handle.handle.uri,
+        .container_type = options.container_type,
     };
 
     const gop = try node_trail.getOrPut(analyser.gpa, node_with_uri);
@@ -796,6 +797,7 @@ fn resolveVarDeclAliasInternal(analyser: *Analyser, options: ResolveOptions, nod
     if (node_trail.contains(.{
         .node = resolved_node,
         .uri = resolved.handle.uri,
+        .container_type = options.container_type,
     })) {
         return null;
     }
@@ -1840,6 +1842,7 @@ fn resolveBindingOfNodeInternal(analyser: *Analyser, options: ResolveOptions) er
     const node_with_uri: NodeWithUri = .{
         .node = node_handle.node,
         .uri = node_handle.handle.uri,
+        .container_type = options.container_type,
     };
     const gop = try analyser.resolved_nodes.getOrPut(analyser.gpa, node_with_uri);
     if (gop.found_existing) return gop.value_ptr.*;
@@ -2367,6 +2370,7 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, options: ResolveOptions) error
             var buf: [1]Ast.Node.Index = undefined;
             const fn_proto = tree.fullFnProto(&buf, node).?;
 
+            // std.debug.print("{?}\n", .{options.container_type});
             const container_type = options.container_type orelse try analyser.innermostContainer(handle, tree.tokenStart(fn_proto.ast.fn_token));
             const doc_comments = try getDocComments(analyser.arena, tree, node);
             const name = if (fn_proto.name_token) |t| tree.tokenSlice(t) else null;
@@ -4463,6 +4467,7 @@ pub fn collectCImportNodes(allocator: std.mem.Allocator, tree: Ast) error{OutOfM
 pub const NodeWithUri = struct {
     node: Ast.Node.Index,
     uri: []const u8,
+    container_type: ?Type,
 
     const Context = struct {
         pub fn hash(self: Context, item: NodeWithUri) u64 {
@@ -4470,12 +4475,19 @@ pub const NodeWithUri = struct {
             var hasher: std.hash.Wyhash = .init(0);
             std.hash.autoHash(&hasher, item.node);
             hasher.update(item.uri);
+            if (item.container_type) |ty| ty.hashWithHasher(&hasher);
             return hasher.final();
         }
 
         pub fn eql(self: Context, a: NodeWithUri, b: NodeWithUri) bool {
             _ = self;
             if (a.node != b.node) return false;
+            if (a.container_type) |a_ty| {
+                const b_ty = b.container_type orelse return false;
+                if (!a_ty.eql(b_ty)) return false;
+            } else {
+                if (b.container_type != null) return false;
+            }
             return std.mem.eql(u8, a.uri, b.uri);
         }
     };

@@ -271,6 +271,8 @@ fn colorIdentifierBasedOnType(
 
         const has_self_param = try builder.analyser.hasSelfParam(type_node);
 
+        // std.debug.print("{}\n", .{has_self_param});
+        // std.debug.print("{}\n", .{type_node.data.function.container_type});
         try writeTokenMod(builder, target_tok, if (has_self_param) .method else .function, new_tok_mod);
     } else {
         var new_tok_mod = tok_mod;
@@ -397,6 +399,7 @@ fn writeNodeTokens(builder: *Builder, node: Ast.Node.Index) error{OutOfMemory}!v
             try writeToken(builder, fn_proto.lib_name, .string);
             try writeToken(builder, fn_proto.ast.fn_token, .keyword);
 
+            // // std.debug.print("bar\n", .{});
             var is_generic = false;
             var func_name_tok_type: TokenType = .function;
             if (try builder.analyser.resolveTypeOfNode(.of(node, handle))) |func_ty| {
@@ -1125,6 +1128,7 @@ fn writeFieldAccess(builder: *Builder, node: Ast.Node.Index) error{OutOfMemory}!
         return;
     }
 
+    // std.debug.print("{}\n", .{lhs_type});
     if (try lhs_type.lookupSymbol(builder.analyser, symbol_name)) |decl_type| decl_blk: {
         field_blk: {
             if (decl_type.decl != .ast_node) break :field_blk;
@@ -1147,7 +1151,10 @@ fn writeFieldAccess(builder: *Builder, node: Ast.Node.Index) error{OutOfMemory}!
             return;
         }
 
+        // std.debug.print("{?}\n", .{decl_type.container_type});
+        // std.debug.print("{}\n", .{decl_type.handle.tree.nodeTag(decl_type.decl.ast_node)});
         const resolved_type = try decl_type.resolveType(builder.analyser) orelse break :decl_blk;
+        // std.debug.print("{}\n", .{resolved_type.data.function.container_type});
         try colorIdentifierBasedOnType(
             builder,
             resolved_type,

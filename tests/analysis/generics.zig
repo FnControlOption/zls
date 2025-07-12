@@ -201,7 +201,7 @@ fn MapUnmanaged(Context: type) type {
         const Self = @This();
         fn clone(self: Self) Self {
             const cloned = self.cloneContext(@as(Context, undefined));
-            //    ^^^^^^ (MapUnmanaged(Context))()
+            //    ^^^^^^ ((unknown type))()
             return cloned;
         }
         fn cloneContext(self: Self, new_ctx: anytype) MapUnmanaged(@TypeOf(new_ctx)) {
@@ -209,7 +209,7 @@ fn MapUnmanaged(Context: type) type {
         }
         fn clone2(self: Self) Self {
             const cloned = self.cloneContext2(@as(Context, undefined));
-            //    ^^^^^^ (MapUnmanaged(*Context))()
+            //    ^^^^^^ ((unknown type))()
             return cloned;
         }
         fn cloneContext2(self: Self, new_ctx: anytype) MapUnmanaged(*@TypeOf(new_ctx)) {
