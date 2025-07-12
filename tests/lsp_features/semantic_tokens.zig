@@ -543,6 +543,73 @@ test "call" {
     });
 }
 
+test "method call" {
+    try testSemanticTokens(
+        \\const Foo = struct {
+        \\    foo: u16,
+        \\    fn toByte(self: @This()) u8 {}
+        \\};
+        \\const bar: Foo = undefined;
+        \\const baz = bar.toByte();
+    , &.{
+        .{ "const", .keyword, .{} },
+        .{ "Foo", .@"struct", .{ .declaration = true } },
+        .{ "=", .operator, .{} },
+        .{ "struct", .keyword, .{} },
+
+        .{ "foo", .property, .{ .declaration = true } },
+        .{ "u16", .type, .{} },
+
+        .{ "fn", .keyword, .{} },
+        .{ "toByte", .method, .{ .declaration = true } },
+        .{ "self", .parameter, .{ .declaration = true } },
+        .{ "@This", .builtin, .{} },
+        .{ "u8", .type, .{} },
+
+        .{ "const", .keyword, .{} },
+        .{ "bar", .variable, .{ .declaration = true, .static = true } },
+        .{ "Foo", .@"struct", .{} },
+        .{ "=", .operator, .{} },
+        .{ "undefined", .keywordLiteral, .{} },
+
+        .{ "const", .keyword, .{} },
+        .{ "baz", .variable, .{ .declaration = true, .static = true } },
+        .{ "=", .operator, .{} },
+        .{ "bar", .variable, .{ .static = true } },
+        .{ "toByte", .function, .{} }, // TODO: this should be method
+    });
+}
+
+test "method call - root struct" {
+    try testSemanticTokens(
+        \\foo: u16,
+        \\fn toByte(self: @This()) u8 {}
+        \\const bar: @This() = undefined;
+        \\const baz = bar.toByte();
+    , &.{
+        .{ "foo", .property, .{ .declaration = true } },
+        .{ "u16", .type, .{} },
+
+        .{ "fn", .keyword, .{} },
+        .{ "toByte", .function, .{ .declaration = true } }, // TODO: this should be method
+        .{ "self", .parameter, .{ .declaration = true } },
+        .{ "@This", .builtin, .{} },
+        .{ "u8", .type, .{} },
+
+        .{ "const", .keyword, .{} },
+        .{ "bar", .variable, .{ .declaration = true, .static = true } },
+        .{ "@This", .builtin, .{} },
+        .{ "=", .operator, .{} },
+        .{ "undefined", .keywordLiteral, .{} },
+
+        .{ "const", .keyword, .{} },
+        .{ "baz", .variable, .{ .declaration = true, .static = true } },
+        .{ "=", .operator, .{} },
+        .{ "bar", .variable, .{ .static = true } },
+        .{ "toByte", .function, .{} }, // TODO: this should be method
+    });
+}
+
 test "method call on return value of generic function" {
     try testSemanticTokens(
         \\const S = struct {
@@ -594,13 +661,13 @@ test "method call on return value of generic function" {
         .{ "value", .variable, .{ .declaration = true, .static = true } },
         .{ "=", .operator, .{} },
         .{ "map", .variable, .{ .static = true } },
-        .{ "getValue", .function, .{} },
+        .{ "getValue", .function, .{} }, // TODO: this should be method
 
         .{ "const", .keyword, .{} },
         .{ "foo", .variable, .{ .declaration = true, .static = true } },
         .{ "=", .operator, .{} },
         .{ "value", .variable, .{ .static = true } },
-        .{ "foo", .function, .{} },
+        .{ "foo", .function, .{} }, // TODO: this should be method
     });
 }
 
