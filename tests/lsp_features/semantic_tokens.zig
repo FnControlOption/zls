@@ -591,7 +591,7 @@ test "method call - root struct" {
         .{ "u16", .type, .{} },
 
         .{ "fn", .keyword, .{} },
-        .{ "toByte", .function, .{ .declaration = true } }, // TODO: this should be method
+        .{ "toByte", .method, .{ .declaration = true } },
         .{ "self", .parameter, .{ .declaration = true } },
         .{ "@This", .builtin, .{} },
         .{ "u8", .type, .{} },

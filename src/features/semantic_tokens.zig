@@ -405,9 +405,8 @@ fn writeNodeTokens(builder: *Builder, node: Ast.Node.Index) error{OutOfMemory}!v
                     func_name_tok_type = .type;
                 } else {
                     const container_ty = try builder.analyser.innermostContainer(handle, tree.tokenStart(fn_proto.ast.fn_token));
-                    if (container_ty.data.container.scope_handle.scope != .root and
-                        Analyser.firstParamIs(func_ty, container_ty))
-                    {
+                    const allow_anytype = container_ty.data.container.scope_handle.scope != .root;
+                    if (Analyser.firstParamMatches(func_ty, container_ty, .{ .allow_anytype = allow_anytype })) {
                         func_name_tok_type = .method;
                     }
                 }

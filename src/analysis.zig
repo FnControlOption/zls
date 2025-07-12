@@ -389,13 +389,23 @@ pub fn firstParamIs(
     func_type: Type,
     expected_type: Type,
 ) bool {
+    return firstParamMatches(func_type, expected_type, .{
+        .allow_anytype = true,
+    });
+}
+
+pub fn firstParamMatches(
+    func_type: Type,
+    expected_type: Type,
+    options: struct { allow_anytype: bool },
+) bool {
     std.debug.assert(expected_type.is_type_val);
     std.debug.assert(func_type.isFunc());
     const func_info = func_type.data.function;
     if (func_info.parameters.len == 0) return false;
     const resolved_type = func_info.parameters[0].type;
     if (!resolved_type.is_type_val) return false;
-    if (resolved_type.data == .anytype_parameter) return true;
+    if (resolved_type.data == .anytype_parameter) return options.allow_anytype;
 
     const deref_type = switch (resolved_type.data) {
         .pointer => |info| switch (info.size) {
