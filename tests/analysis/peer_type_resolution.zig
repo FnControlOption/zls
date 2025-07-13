@@ -38,6 +38,120 @@ pub fn main() !void {
     _ = catch_1;
     //  ^^^^^^^ (i16)()
 
+    const block_0 = blk: {
+        if (runtime_bool)
+            break :blk @as(i8, 0);
+        break :blk @as(i16, 0);
+    };
+    _ = block_0;
+    //  ^^^^^^^ (i16)()
+
+    const block_1 = blk: {
+        if (runtime_bool)
+            break :blk @as(i16, 0);
+        break :blk @as(i8, 0);
+    };
+    _ = block_1;
+    //  ^^^^^^^ (i16)()
+
+    const while_0 = while (runtime_bool) {
+        if (runtime_bool)
+            break @as(i8, 0);
+    } else @as(i16, 0);
+    _ = while_0;
+    //  ^^^^^^^ (i16)()
+
+    const while_1 = while (runtime_bool) {
+        if (runtime_bool)
+            break @as(i16, 0);
+    } else @as(i8, 0);
+    _ = while_1;
+    //  ^^^^^^^ (i16)()
+
+    const while_2 = blk: while (runtime_bool) {
+        if (runtime_bool)
+            break :blk @as(i8, 0);
+    } else @as(i16, 0);
+    _ = while_2;
+    //  ^^^^^^^ (i16)()
+
+    const while_3 = blk: while (runtime_bool) {
+        if (runtime_bool)
+            break :blk @as(i16, 0);
+    } else @as(i8, 0);
+    _ = while_3;
+    //  ^^^^^^^ (i16)()
+
+    const for_0 = for (0..3) |_| {
+        if (runtime_bool)
+            break @as(i8, 0);
+    } else @as(i16, 0);
+    _ = for_0;
+    //  ^^^^^ (i16)()
+
+    const for_1 = for (0..3) |_| {
+        if (runtime_bool)
+            break @as(i16, 0);
+    } else @as(i8, 0);
+    _ = for_1;
+    //  ^^^^^ (i16)()
+
+    const for_2 = blk: for (0..3) |_| {
+        if (runtime_bool)
+            break :blk @as(i8, 0);
+    } else @as(i16, 0);
+    _ = for_2;
+    //  ^^^^^ (i16)()
+
+    const for_3 = blk: for (0..3) |_| {
+        if (runtime_bool)
+            break :blk @as(i16, 0);
+    } else @as(i8, 0);
+    _ = for_3;
+    //  ^^^^^ (i16)()
+
+    const switch_0 = switch (runtime_bool) {
+        true => @as(i8, 0),
+        false => @as(i16, 0),
+    };
+    _ = switch_0;
+    //  ^^^^^^^^ (i16)()
+
+    const switch_1 = switch (runtime_bool) {
+        true => @as(i16, 0),
+        false => @as(i8, 0),
+    };
+    _ = switch_1;
+    //  ^^^^^^^^ (i16)()
+
+    const switch_2 = blk: switch (runtime_bool) {
+        true => @as(i8, 0),
+        false => break :blk @as(i16, 0),
+    };
+    _ = switch_2;
+    //  ^^^^^^^^ (i16)()
+
+    const switch_3 = blk: switch (runtime_bool) {
+        true => @as(i16, 0),
+        false => break :blk @as(i8, 0),
+    };
+    _ = switch_3;
+    //  ^^^^^^^^ (i16)()
+
+    const switch_4 = blk: switch (runtime_bool) {
+        true => break :blk @as(i8, 0),
+        false => break :blk @as(i16, 0),
+    };
+    _ = switch_4;
+    //  ^^^^^^^^ (i16)()
+
+    const switch_5 = blk: switch (runtime_bool) {
+        true => break :blk @as(i16, 0),
+        false => break :blk @as(i8, 0),
+    };
+    _ = switch_5;
+    //  ^^^^^^^^ (i16)()
+
     const optional_0 = if (runtime_bool) s else @as(?S, s);
     _ = optional_0;
     //  ^^^^^^^^^^ (?S)()
@@ -189,6 +303,59 @@ pub fn main() !void {
     const noreturn_1 = if (runtime_bool) return else s;
     _ = noreturn_1;
     //  ^^^^^^^^^^ (S)()
+
+    const break_in_while_condition = while (runtime_bool) {
+        while (break null) {}
+    };
+    _ = break_in_while_condition;
+    //  ^^^^^^^^^^^^^^^^^^^^^^^^ (void)() TODO this should be `?void`
+
+    const break_in_for_input = while (runtime_bool) {
+        for (break null) |_| {}
+    };
+    _ = break_in_for_input;
+    //  ^^^^^^^^^^^^^^^^^^ (void)() TODO this should be `?void`
+
+    const break_in_nested_loop_0 = while (runtime_bool) {
+        _ = for (0..1) |_| {
+            break null;
+        };
+        break;
+    };
+    _ = break_in_nested_loop_0;
+    //  ^^^^^^^^^^^^^^^^^^^^^^ (void)()
+
+    const break_in_nested_loop_1 = blk: while (runtime_bool) {
+        _ = for (0..1) |_| {
+            break null;
+        };
+        break :blk;
+    };
+    _ = break_in_nested_loop_1;
+    //  ^^^^^^^^^^^^^^^^^^^^^^ (void)()
+
+    const break_in_nested_loop_2 = blk: while (runtime_bool) {
+        _ = struct {
+            const foo = blk: for (0..1) |_| {
+                break :blk null;
+            };
+        };
+        break :blk;
+    };
+    _ = break_in_nested_loop_2;
+    //  ^^^^^^^^^^^^^^^^^^^^^^ (?void)() TODO this should be `void`
+
+    const break_in_break_operand = while (runtime_bool) {
+        if (runtime_bool)
+            break null;
+        break blk: {
+            if (runtime_bool)
+                break :blk error.A;
+            break error.B;
+        };
+    };
+    _ = try break_in_break_operand;
+    //      ^^^^^^^^^^^^^^^^^^^^^^ (error{A,B}!?void)()
 
     // Use @compileLog to verify the expected type with the compiler:
     // @compileLog(error_union_0);
