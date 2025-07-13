@@ -357,6 +357,24 @@ pub fn main() !void {
     _ = try break_in_break_operand;
     //      ^^^^^^^^^^^^^^^^^^^^^^ (error{A,B}!?void)()
 
+    var tagged_union: union(enum) {
+        i8: i8,
+        i16: i16,
+        u8: u8,
+        u16: u16,
+    } = .{ .i8 = 0 };
+    _ = &tagged_union;
+    switch (tagged_union) {
+        .i8, .i16 => |i| {
+            _ = i;
+            //  ^ (i16)()
+        },
+        .u8, .u16 => |u| {
+            _ = u;
+            //  ^ (u16)()
+        },
+    }
+
     // Use @compileLog to verify the expected type with the compiler:
     // @compileLog(error_union_0);
 
