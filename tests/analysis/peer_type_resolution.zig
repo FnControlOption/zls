@@ -187,6 +187,12 @@ const error_union_26 = if (runtime_bool) @as(error{A}!i8, 0) else @as(i16, 0);
 const error_union_27 = if (runtime_bool) @as(i16, 0) else @as(error{A}!i8, 0);
 //    ^^^^^^^^^^^^^^ (error{A}!i16)()
 
+const array_coerce_0 = if (runtime_bool) [2]error{A}{ error.A, error.A } else [2]error{ A, B }{ error.A, error.B };
+//    ^^^^^^^^^^^^^^ ([2]error{A,B})()
+
+const array_coerce_1 = if (runtime_bool) [2]error{ A, B }{ error.A, error.B } else [2]error{A}{ error.A, error.A };
+//    ^^^^^^^^^^^^^^ ([2]error{A,B})()
+
 const FnCoerce = struct {
     fn errorsA() [2]error{A} {
         return .{ error.A, error.A };
